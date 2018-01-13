@@ -1,0 +1,21 @@
+{
+  "name": "bnknchallenge",
+  "version": "1.0.0",
+  "description": "",
+  "main": "app.js",
+  "scripts": {
+    "start": "node app.js"
+  },
+  "author": "Mathieu Fontaine",
+  "license": "All rights reserved",
+  "private": true,
+  "repository": {
+    "type": "git",
+    "url": "git://github.com/spidou/bnknchallenge.git"
+  },
+  "dependencies": {
+    "async": "^1.5.2",
+    "phantom": "^0.8.4",
+    "phantomjs": "^1.9.20"
+  }
+}
