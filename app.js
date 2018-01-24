@@ -1,111 +1,67 @@
-var scraper = require('./lib/scraper')
+var async = require('async')
+var csv = require('fast-csv')
+var ProgressBar = require('progress');
+
+var Bnkn = require('./lib/bnkn')
 var url = 'https://web.bankin.com/challenge/index.html'
-// console.log(url)
 
 var startedAt = new Date()
 var endedAt = null
+var outputFile = "output.csv"
+var starts = [...Array(5000).keys()].filter(function (s) { return s % 50 == 0 }) // [0, 50, 100, 150, ..., 4950]
+console.log('Let\'s scrape ' + starts.length + ' pages')
+var transactions = []
+var unorderedTransactions = {}
 
-var page = null
-var doc = null
+var bar = new ProgressBar('  scraping [:bar] :percent ETA: :etas', {
+  total: starts.length,
+  complete: '=',
+  incomplete: ' ',
+  width: 50,
+});
+bar.tick(0)
 
-var onPageReady = function(_page, done) {
-  page = _page
-  // console.log('onPageReady')
-  click(function() {
-    wait(200, function() {
-      checkTable(function(length) {
-        if (length > 0) {
-          getResults(function(result) {
-            if (!result) {
-              onFinish("An error has occured")
-            } else {
-              onFinish(null, result)
-            }
-            done()
-          })
-        } else {
-          onPageReady(page, done)
-        }
-      })
+async.eachLimit(
+  starts,
+  10, // maximum number of async operations at a time
+  function(start, next) {
+    var pageUrl = url + '?start=' + start
+    var bnkn = new Bnkn(pageUrl, function finalCallback(err, transactions) {
+      unorderedTransactions[start] = transactions
+      bar.tick(1);
+      next(err)
     })
-  })
-}
-
-var click = function(callback) {
-  // console.log('click on button')
-  page.evaluate(function () {
-    var btn = document.getElementById('btnGenerate')
-    btn && btn.click()
-  }, callback)
-}
-
-var wait = function(time, callback) {
-  // console.log('wait ' + time + ' ms')
-  setTimeout(callback, time);
-}
-
-var checkTable = function(callback) {
-  // console.log('check table')
-  page.evaluate(function () {
-    if (document.getElementById('fm')) {
-      console.log('table in iframe')
-      doc = document.getElementById('fm').contentWindow.document
-    } else {
-      console.log('table in document')
-      doc = document
+    bnkn.getTransactions()
+  },
+  function(err) {
+    if (err) {
+      console.log(err)
+      return process.exit(1)
     }
-    return doc.querySelectorAll('table tr').length
-  }, function(result) {
-    callback(result)
-  })
-}
 
-var getResults = function(callback) {
-  // console.log('getResults')
-  page.evaluate(function () {
-    var objects = []
-    var trs = doc.querySelectorAll('table tr')
-    if (trs.length) {
-      for (i = 1, len = trs.length; i < len; i++) { // start at 1 to exclude table head
-        var tr = trs[i]
-        objects.push({
-          account: tr.cells[0].outerText,
-          transaction: tr.cells[1].outerText,
-          amount: tr.cells[2].outerText.slice(0, -1),
-          currency: tr.cells[2].outerText.slice(-1)
-        })
+    var indexes = Object.keys(unorderedTransactions)
+    indexes.sort(function(a, b) { return parseInt(a) > parseInt(b) })
+    indexes = indexes.filter(function(a, pos) { return indexes.indexOf(a) == pos })
+    for (i = 0; i < indexes.length; i++) {
+      transactions = transactions.concat(unorderedTransactions[indexes[i]])
+    }
+
+    csv.writeToPath(
+      outputFile,
+      transactions,
+      {
+        headers: true,
+        delimiter: ';',
+        quote: '"' }
+    ).on(
+      'finish',
+      function () {
+        console.log(transactions)
+        console.log('Yay! The file ' + outputFile + ' has been updated successfully')
+        endedAt = new Date()
+        console.log(transactions.length + " results found in " + (endedAt - startedAt) / 1000 + " seconds")
+        process.exit()
       }
-    }
-    // console.log(objects.length + ' objects found')
-    return objects
-  }, function (result) {
-    callback(result)
-  })
-}
-
-var onError = function (err) {
-  console.log('onError')
-  console.log(err)
-}
-
-var onFinish = function (err, lines) {
-  // console.log('onFinish')
-  if (err) {
-    console.log(err)
-    return process.exit(1)
+    )
   }
-  // console.log(lines)
-  var len = lines.length
-  if (len) {
-    // console.log(lines) // display lines on console
-    
-    var endedAt = new Date()
-    console.log(len + " results found in " + (endedAt - startedAt) / 1000 + " seconds")
-    process.exit()
-  } else {
-    console.log('Page returns 0 object. Let\'s retry!')
-    scraper.initPhantom(url, onError, onPageReady)
-  }
-}
-
-scraper.initPhantom(url, onError, onPageReady)
+)
